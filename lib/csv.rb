@@ -1012,6 +1012,7 @@ class CSV
   # <b><tt>:skip_blanks</tt></b>::        +false+
   # <b><tt>:force_quotes</tt></b>::       +false+
   # <b><tt>:skip_lines</tt></b>::         +nil+
+  # <b><tt>:strict_field_count</tt></b>:: +false+
   #
   DEFAULT_OPTIONS = { col_sep:            ",",
                       row_sep:            :auto,
@@ -1024,7 +1025,8 @@ class CSV
                       header_converters:  nil,
                       skip_blanks:        false,
                       force_quotes:       false,
-                      skip_lines:         nil }.freeze
+                      skip_lines:         nil,
+                      strict_field_count: false }.freeze
 
   #
   # This method will return a CSV instance, just like CSV::new(), but the
@@ -1477,6 +1479,13 @@ class CSV
   #                                       a comment. If the passed object does
   #                                       not respond to <tt>match</tt>,
   #                                       <tt>ArgumentError</tt> is thrown.
+  # <b><tt>:strict_field_count</tt></b>:: When +true+ and <tt>:headers</tt> are
+  #                                       set, CSV will check that every line
+  #                                       of content has the same number of
+  #                                       fields than the header. Empty fields
+  #                                       are allowed and must be indicated by
+  #                                       two consecutive (field or line)
+  #                                       separators.
   #
   # See CSV::DEFAULT_OPTIONS for the default settings.
   #
@@ -1653,6 +1662,12 @@ class CSV
 
     @headers =  row if header_row?
     @lineno  += 1
+
+    # check the number of fields in the header against the one in the row
+    if @use_headers && @strict_field_count && @headers.size != row.size
+      raise MalformedCSVError, "Wrong number of fields at line #{@lineno} " +
+                               "(#{row.size} instead of #{@headers.size})"
+    end
 
     output = row.map(&@quote).join(@col_sep) + @row_sep  # quote and separate
     if @io.is_a?(StringIO)             and
@@ -2109,9 +2124,10 @@ class CSV
 
   # Stores header row settings and loads header converters, if needed.
   def init_headers(options)
-    @use_headers    = options.delete(:headers)
-    @return_headers = options.delete(:return_headers)
-    @write_headers  = options.delete(:write_headers)
+    @use_headers        = options.delete(:headers)
+    @return_headers     = options.delete(:return_headers)
+    @write_headers      = options.delete(:write_headers)
+    @strict_field_count = options.delete(:strict_field_count)
 
     # headers must be delayed until shift(), in case they need a row of content
     @headers = nil
@@ -2216,6 +2232,12 @@ class CSV
       elsif not [Array, String].include? @use_headers.class  # skip to field row
         return shift
       end
+    end
+
+    # check the number of fields in the header against the one in the row
+    if @strict_field_count && @headers.size != row.size
+      raise MalformedCSVError, "Wrong number of fields at line #{@lineno} " +
+                               "(#{row.size} instead of #{@headers.size})"
     end
 
     self.class::Row.new(@headers, convert_fields(row))  # field row
